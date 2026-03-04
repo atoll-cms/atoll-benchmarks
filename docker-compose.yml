@@ -3,8 +3,19 @@ services:
     build:
       context: ..
       dockerfile: atoll-benchmarks/docker/atoll/Dockerfile
+      args:
+        ATOLL_PROFILE: dynamic
     ports:
       - "8080:80"
+
+  atoll-static:
+    build:
+      context: ..
+      dockerfile: atoll-benchmarks/docker/atoll/Dockerfile
+      args:
+        ATOLL_PROFILE: static
+    ports:
+      - "8084:80"
 
   wordpress-db:
     image: mariadb:11

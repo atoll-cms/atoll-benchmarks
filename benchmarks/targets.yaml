@@ -12,6 +12,11 @@ scenarios:
     system: atoll
     url: http://127.0.0.1:8080/
 
+  - id: atoll-static-home
+    label: atoll static profile homepage
+    system: atoll-static
+    url: http://127.0.0.1:8084/
+
   - id: wordpress-home
     label: WordPress homepage
     system: wordpress

@@ -3,6 +3,7 @@
 Reproduzierbares Benchmark-Harness fuer:
 
 - atoll
+- atoll (static profile)
 - WordPress
 - Kirby
 - Grav
@@ -60,6 +61,7 @@ Report erzeugen:
 Standard-Targets: `benchmarks/targets.yaml`
 
 - atoll: `http://127.0.0.1:8080/`
+- atoll static profile: `http://127.0.0.1:8084/`
 - WordPress: `http://127.0.0.1:8081/`
 - Kirby: `http://127.0.0.1:8082/`
 - Grav: `http://127.0.0.1:8083/`
@@ -73,6 +75,7 @@ Standard-Targets: `benchmarks/targets.yaml`
 - Gleiche Lastparameter (`requests`, `concurrency`, `rounds`) verwenden.
 - Der atoll-Docker-Service setzt im Benchmark-Stack ein hohes Rate-Limit, um versehentliche Drosselung zu vermeiden.
 - Der atoll-Docker-Service deaktiviert zusaetzlich `security.rate_limit.enabled` fuer den Benchmark-Container, um I/O-Overhead der Drosselung im Public-Read-Test auszuschliessen.
+- Das Ziel `atoll-static` nutzt zusaetzlich `security.session.enabled=false`, um einen reinen Static-Site-Betrieb ohne Session-Overhead abzubilden.
 - Wenn dennoch `429` auftritt, gilt der Lauf als ungueltig und muss wiederholt werden.
 - WordPress wird im Stack automatisch per `wp-cli` initialisiert, damit die Homepage nicht auf Setup/Redirect landet.
 
