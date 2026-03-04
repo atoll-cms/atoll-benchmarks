@@ -54,6 +54,11 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      - name: Checkout atoll-core and atoll-starter (benchmark fixtures)
+        run: |
+          git clone --depth=1 https://github.com/atoll-cms/atoll-core.git ../atoll-core
+          git clone --depth=1 https://github.com/atoll-cms/atoll-starter.git ../atoll-starter
+
       - name: Build and start benchmark stack
         run: ./bin/bench up
 
