@@ -49,6 +49,9 @@ if (!is_array($rawResults)) {
     $rawResults = [];
 }
 
+// --- Excluded profiles (atoll variants that clutter the comparison) ---
+$excludedSystems = ['atoll-minimal', 'atoll-static'];
+
 $summary = [];
 $systems = [];
 $pageTypes = [];
@@ -114,17 +117,16 @@ usort($summary, static function (array $a, array $b): int {
     return strcmp((string) $a['scenario'], (string) $b['scenario']);
 });
 
-$pageTypeRows = [];
-foreach ($summary as $row) {
-    $type = (string) $row['page_type'];
-    $pageTypeRows[$type] ??= [];
-    $pageTypeRows[$type][] = $row;
-}
-ksort($pageTypeRows);
+// --- Filter to main systems only ---
+$displaySummary = array_values(array_filter($summary, static fn (array $row): bool => !in_array($row['system'], $excludedSystems, true)));
 
+// --- Per-system aggregation ---
 $systemRows = [];
 foreach (array_keys($systems) as $system) {
-    $rows = array_values(array_filter($summary, static fn (array $row): bool => $row['system'] === $system));
+    if (in_array($system, $excludedSystems, true)) {
+        continue;
+    }
+    $rows = array_values(array_filter($displaySummary, static fn (array $row): bool => $row['system'] === $system));
     if ($rows === []) {
         continue;
     }
@@ -147,82 +149,54 @@ foreach (array_keys($systems) as $system) {
     ];
 }
 
+// --- Page-type grouping (display systems only) ---
+$pageTypeRows = [];
+foreach ($displaySummary as $row) {
+    $type = (string) $row['page_type'];
+    $pageTypeRows[$type] ??= [];
+    $pageTypeRows[$type][] = $row;
+}
+ksort($pageTypeRows);
+
+// --- Count wins ---
 foreach ($pageTypeRows as $typeRows) {
     $okRows = array_values(array_filter($typeRows, static fn (array $row): bool => $row['status'] === 'ok'));
     if ($okRows === []) {
         continue;
     }
 
-    usort($okRows, static function (array $a, array $b): int {
-        if ($a['p95_ms'] < $b['p95_ms']) {
-            return -1;
-        }
-        if ($a['p95_ms'] > $b['p95_ms']) {
-            return 1;
-        }
-        return strcmp((string) $a['system'], (string) $b['system']);
-    });
-    $bestP95System = (string) $okRows[0]['system'];
-    if (isset($systemRows[$bestP95System])) {
-        $systemRows[$bestP95System]['wins_p95']++;
+    usort($okRows, static fn (array $a, array $b): int => $a['p95_ms'] <=> $b['p95_ms'] ?: strcmp($a['system'], $b['system']));
+    $best = (string) $okRows[0]['system'];
+    if (isset($systemRows[$best])) {
+        $systemRows[$best]['wins_p95']++;
     }
 
-    usort($okRows, static function (array $a, array $b): int {
-        if ($a['rps'] > $b['rps']) {
-            return -1;
-        }
-        if ($a['rps'] < $b['rps']) {
-            return 1;
-        }
-        return strcmp((string) $a['system'], (string) $b['system']);
-    });
-    $bestRpsSystem = (string) $okRows[0]['system'];
-    if (isset($systemRows[$bestRpsSystem])) {
-        $systemRows[$bestRpsSystem]['wins_rps']++;
+    usort($okRows, static fn (array $a, array $b): int => $b['rps'] <=> $a['rps'] ?: strcmp($a['system'], $b['system']));
+    $best = (string) $okRows[0]['system'];
+    if (isset($systemRows[$best])) {
+        $systemRows[$best]['wins_rps']++;
     }
 }
 
+// --- atoll baseline (before usort destroys string keys) ---
+$atollRow = $systemRows['atoll'] ?? null;
+
+// Sort systems: atoll first, then by avg p95
 usort($systemRows, static function (array $a, array $b): int {
-    if ($a['avg_p95_ms'] < $b['avg_p95_ms']) {
+    if ($a['system'] === 'atoll') {
         return -1;
     }
-    if ($a['avg_p95_ms'] > $b['avg_p95_ms']) {
+    if ($b['system'] === 'atoll') {
         return 1;
     }
-    if ($a['avg_rps'] > $b['avg_rps']) {
-        return -1;
-    }
-    if ($a['avg_rps'] < $b['avg_rps']) {
-        return 1;
-    }
-    return strcmp((string) $a['system'], (string) $b['system']);
+    return $a['avg_p95_ms'] <=> $b['avg_p95_ms'] ?: $b['avg_rps'] <=> $a['avg_rps'] ?: strcmp($a['system'], $b['system']);
 });
+$atollP95 = $atollRow !== null ? (float) $atollRow['avg_p95_ms'] : 1.0;
+$atollRps = $atollRow !== null ? (float) $atollRow['avg_rps'] : 1.0;
 
-$baseline = null;
-foreach ($systemRows as $row) {
-    if ($row['system'] === 'atoll') {
-        $baseline = $row;
-        break;
-    }
-}
+$displayCount = count($displaySummary);
 
-$summaryCount = count($summary);
-$okCount = count(array_filter($summary, static fn (array $row): bool => $row['status'] === 'ok'));
-$errorCount = $summaryCount - $okCount;
-$bestByP95 = null;
-$bestByRps = null;
-foreach ($summary as $row) {
-    if ($row['status'] !== 'ok') {
-        continue;
-    }
-    if ($bestByP95 === null || $row['p95_ms'] < $bestByP95['p95_ms']) {
-        $bestByP95 = $row;
-    }
-    if ($bestByRps === null || $row['rps'] > $bestByRps['rps']) {
-        $bestByRps = $row;
-    }
-}
-
+// --- JSON export (keep existing format) ---
 if (!is_dir($outDir) && !mkdir($outDir, 0775, true) && !is_dir($outDir)) {
     fwrite(STDERR, "Failed to create output directory: {$outDir}\n");
     exit(1);
@@ -241,88 +215,89 @@ if (is_file($markdown)) {
 }
 copy($inputPath, $outDir . '/latest.raw.json');
 
-$systemCardsHtml = '';
-foreach ($systemRows as $row) {
-    $ratioP95 = $baseline !== null && (float) $baseline['avg_p95_ms'] > 0.0
-        ? (float) $row['avg_p95_ms'] / (float) $baseline['avg_p95_ms']
-        : 1.0;
-    $ratioRps = $baseline !== null && (float) $baseline['avg_rps'] > 0.0
-        ? (float) $row['avg_rps'] / (float) $baseline['avg_rps']
-        : 1.0;
+// ============================================================
+// HTML Generation
+// ============================================================
 
-    $systemCardsHtml .= '<article class="system-card">'
-        . '<div class="system-card-head"><h3>' . h((string) $row['system']) . '</h3><span class="chip">'
-        . (int) $row['ok_scenarios'] . '/' . (int) $row['scenarios'] . ' ok</span></div>'
-        . '<div class="system-metrics">'
-        . '<div><span class="label">Avg p95</span><strong>' . fmt((float) $row['avg_p95_ms'], 2) . ' ms</strong></div>'
-        . '<div><span class="label">Avg RPS</span><strong>' . fmt((float) $row['avg_rps'], 2) . '</strong></div>'
-        . '<div><span class="label">Wins p95</span><strong>' . (int) $row['wins_p95'] . '</strong></div>'
-        . '<div><span class="label">Wins RPS</span><strong>' . (int) $row['wins_rps'] . '</strong></div>'
+// --- Build system comparison rows ---
+$allSystemRows = array_values($systemRows);
+$maxP95InGroup = max(array_column($allSystemRows, 'avg_p95_ms'));
+$maxRpsInGroup = max(array_column($allSystemRows, 'avg_rps'));
+
+$systemsHtml = '';
+foreach ($allSystemRows as $row) {
+    $isAtoll = $row['system'] === 'atoll';
+    $ratioP95 = $atollP95 > 0.0 ? (float) $row['avg_p95_ms'] / $atollP95 : 1.0;
+
+    $p95Bar = $maxP95InGroup > 0.0 ? min(100.0, ((float) $row['avg_p95_ms'] / $maxP95InGroup) * 100.0) : 0.0;
+    $rpsBar = $maxRpsInGroup > 0.0 ? min(100.0, ((float) $row['avg_rps'] / $maxRpsInGroup) * 100.0) : 0.0;
+
+    $cls = $isAtoll ? ' is-atoll' : '';
+    $badge = '';
+    if (!$isAtoll) {
+        $badge = '<span class="ratio-badge">' . fmt($ratioP95, 1) . 'x latency</span>';
+    }
+
+    $systemsHtml .= '<div class="sys-row' . $cls . '">'
+        . '<div class="sys-name"><strong>' . h((string) $row['system']) . '</strong>' . $badge . '</div>'
+        . '<div class="sys-stats">'
+        . '<div class="sys-stat"><span>p95</span><strong>' . fmt((float) $row['avg_p95_ms'], 2) . ' ms</strong></div>'
+        . '<div class="sys-stat"><span>RPS</span><strong>' . fmt((float) $row['avg_rps'], 0) . '</strong></div>'
+        . '<div class="sys-stat"><span>Wins p95</span><strong>' . (int) $row['wins_p95'] . '/' . count($pageTypes) . '</strong></div>'
+        . '<div class="sys-stat"><span>Wins RPS</span><strong>' . (int) $row['wins_rps'] . '/' . count($pageTypes) . '</strong></div>'
         . '</div>'
-        . '<p class="small muted">vs atoll: p95 x' . fmt($ratioP95, 2) . ' | rps x' . fmt($ratioRps, 2) . '</p>'
-        . '</article>';
+        . '<div class="sys-bars">'
+        . '<div class="sys-bar-row"><span class="bar-label">Latency</span><div class="bar bar-p95"><i style="width:' . fmt($p95Bar, 1) . '%"></i></div></div>'
+        . '<div class="sys-bar-row"><span class="bar-label">Throughput</span><div class="bar bar-rps"><i style="width:' . fmt($rpsBar, 1) . '%"></i></div></div>'
+        . '</div>'
+        . '</div>';
 }
 
+// --- Build per-page-type comparison sections ---
 $pageSectionsHtml = '';
 foreach ($pageTypeRows as $type => $rows) {
     $okRows = array_values(array_filter($rows, static fn (array $row): bool => $row['status'] === 'ok'));
-    $maxRps = $okRows !== [] ? max(array_column($okRows, 'rps')) : 0.0;
-    $minP95 = $okRows !== [] ? min(array_column($okRows, 'p95_ms')) : 0.0;
-
-    usort($rows, static function (array $a, array $b): int {
-        if ($a['status'] === 'ok' && $b['status'] !== 'ok') {
-            return -1;
-        }
-        if ($a['status'] !== 'ok' && $b['status'] === 'ok') {
-            return 1;
-        }
-        if ($a['p95_ms'] < $b['p95_ms']) {
-            return -1;
-        }
-        if ($a['p95_ms'] > $b['p95_ms']) {
-            return 1;
-        }
-        return strcmp((string) $a['system'], (string) $b['system']);
-    });
-
-    $cards = '';
-    foreach ($rows as $row) {
-        $isOk = $row['status'] === 'ok';
-        $p95Score = ($isOk && $minP95 > 0.0 && (float) $row['p95_ms'] > 0.0)
-            ? min(100.0, max(0.0, ($minP95 / (float) $row['p95_ms']) * 100.0))
-            : 0.0;
-        $rpsScore = ($isOk && $maxRps > 0.0)
-            ? min(100.0, max(0.0, ((float) $row['rps'] / $maxRps) * 100.0))
-            : 0.0;
-        $deltaP95 = ($isOk && $minP95 > 0.0) ? ((float) $row['p95_ms'] - $minP95) : 0.0;
-        $deltaRps = ($isOk && $maxRps > 0.0) ? ($maxRps - (float) $row['rps']) : 0.0;
-        $sparkline = sparkline((array) $row['round_p95_values']);
-
-        $cards .= '<article class="scenario-card ' . ($isOk ? 'is-ok' : 'is-error') . '">'
-            . '<div class="scenario-head"><h4>' . h((string) $row['system']) . '</h4>'
-            . '<span class="status status-' . h((string) $row['status']) . '">' . h((string) $row['status']) . '</span></div>'
-            . '<p class="scenario-label">' . h((string) $row['label']) . '</p>'
-            . '<div class="metric-grid">'
-            . '<div><span class="label">p95</span><strong>' . fmt((float) $row['p95_ms'], 2) . ' ms</strong></div>'
-            . '<div><span class="label">RPS</span><strong>' . fmt((float) $row['rps'], 2) . '</strong></div>'
-            . '<div><span class="label">Err</span><strong>' . fmt((float) $row['error_rate'], 2) . '%</strong></div>'
-            . '<div><span class="label">Rounds</span><strong>' . (int) $row['round_count'] . '</strong></div>'
-            . '</div>'
-            . '<div class="bars">'
-            . '<div class="bar-row"><span>p95 score</span><div class="bar"><i style="width:' . fmt($p95Score, 2) . '%"></i></div><em>+' . fmt($deltaP95, 2) . ' ms</em></div>'
-            . '<div class="bar-row"><span>RPS score</span><div class="bar"><i style="width:' . fmt($rpsScore, 2) . '%"></i></div><em>-' . fmt($deltaRps, 2) . '</em></div>'
-            . '</div>'
-            . '<div class="sparkline"><span>p95 trend</span>' . $sparkline . '</div>'
-            . '</article>';
+    if ($okRows === []) {
+        continue;
     }
 
-    $pageSectionsHtml .= '<section class="section">'
-        . '<div class="section-head"><h2>' . h(strtoupper($type)) . '</h2>'
-        . '<p>' . count($rows) . ' scenarios | best p95: ' . fmt($minP95, 2) . ' ms | best rps: ' . fmt($maxRps, 2) . '</p></div>'
-        . '<div class="scenario-grid">' . $cards . '</div>'
+    usort($okRows, static fn (array $a, array $b): int => $a['p95_ms'] <=> $b['p95_ms']);
+    $maxRps = max(array_column($okRows, 'rps'));
+    $maxP95 = max(array_column($okRows, 'p95_ms'));
+
+    $barRows = '';
+    foreach ($okRows as $row) {
+        $isAtoll = $row['system'] === 'atoll';
+        $p95Pct = $maxP95 > 0.0 ? min(100.0, ((float) $row['p95_ms'] / $maxP95) * 100.0) : 0.0;
+        $rpsPct = $maxRps > 0.0 ? min(100.0, ((float) $row['rps'] / $maxRps) * 100.0) : 0.0;
+        $sparkSvg = sparkline((array) $row['round_p95_values']);
+
+        $cls = $isAtoll ? ' is-atoll' : '';
+        $barRows .= '<div class="cmp-row' . $cls . '">'
+            . '<div class="cmp-system">' . h((string) $row['system']) . '</div>'
+            . '<div class="cmp-bar-cell"><div class="bar bar-rps"><i style="width:' . fmt($rpsPct, 1) . '%"></i></div></div>'
+            . '<div class="cmp-val">' . fmt((float) $row['rps'], 0) . ' <small>rps</small></div>'
+            . '<div class="cmp-bar-cell"><div class="bar bar-p95-inv"><i style="width:' . fmt($p95Pct, 1) . '%"></i></div></div>'
+            . '<div class="cmp-val">' . fmt((float) $row['p95_ms'], 2) . ' <small>ms</small></div>'
+            . '<div class="cmp-spark">' . $sparkSvg . '</div>'
+            . '</div>';
+    }
+
+    $pageSectionsHtml .= '<section class="page-section">'
+        . '<h2>' . h(ucfirst($type)) . '</h2>'
+        . '<div class="cmp-header">'
+        . '<div class="cmp-system"></div>'
+        . '<div class="cmp-bar-cell"><span>Throughput (RPS)</span></div>'
+        . '<div class="cmp-val"></div>'
+        . '<div class="cmp-bar-cell"><span>Latency (p95)</span></div>'
+        . '<div class="cmp-val"></div>'
+        . '<div class="cmp-spark"><span>Trend</span></div>'
+        . '</div>'
+        . $barRows
         . '</section>';
 }
 
+// --- Raw table ---
 $rawRows = '';
 foreach ($summary as $row) {
     $rawRows .= '<tr>'
@@ -338,15 +313,17 @@ foreach ($summary as $row) {
         . '</tr>';
 }
 
+// --- Template variables ---
 $runAtText = $runAt !== '' ? h($runAt) : 'n/a';
 $sourceText = h(basename($inputPath));
-$latestMd = is_file($outDir . '/latest.md') ? '<a href="latest.md">latest.md</a> | ' : '';
-$bestP95Text = $bestByP95 !== null ? h((string) $bestByP95['system']) . ' (' . fmt((float) $bestByP95['p95_ms'], 2) . ' ms)' : 'n/a';
-$bestRpsText = $bestByRps !== null ? h((string) $bestByRps['system']) . ' (' . fmt((float) $bestByRps['rps'], 2) . ')' : 'n/a';
-$systemCount = count($systems);
+$latestMd = is_file($outDir . '/latest.md') ? '<a href="latest.md">Markdown</a> | ' : '';
+$atollP95Text = $atollRow !== null ? fmt((float) $atollRow['avg_p95_ms'], 2) : 'n/a';
+$atollRpsText = $atollRow !== null ? fmt((float) $atollRow['avg_rps'], 0) : 'n/a';
+$atollWinsP95 = $atollRow !== null ? (int) $atollRow['wins_p95'] : 0;
 $pageTypeCount = count($pageTypes);
+$systemCount = count($systemRows);
 
-$html = <<<HTML
+$html = <<<'CSSBLOCK'
 <!doctype html>
 <html lang="en">
 <head>
@@ -354,368 +331,337 @@ $html = <<<HTML
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>atoll Benchmark Dashboard</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Chivo:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+
     :root {
-      --bg: #f6f7f3;
+      --bg: #f4f2ee;
       --panel: #ffffff;
-      --line: #d8dfd2;
-      --line-strong: #b8c7ad;
-      --text: #182017;
-      --muted: #5f6f61;
-      --accent: #2a6f57;
-      --accent-soft: #d4e8dc;
+      --line: #ddd9d0;
+      --text: #1a1a18;
+      --muted: #6b6860;
+      --accent: #1a5c3a;
+      --accent-soft: #e3f0e8;
+      --accent-glow: #2d8a56;
+      --gold: #b8860b;
+      --gold-soft: #fdf6e3;
       --warn: #b44f1c;
       --warn-soft: #fce9df;
       --ok: #1f7a49;
       --ok-soft: #dff4e8;
-      --shadow: 0 10px 24px rgba(17, 34, 20, 0.08);
-      --radius: 14px;
+      --hero-from: #0a1f14;
+      --hero-to: #163828;
+      --shadow: 0 2px 12px rgba(0,0,0,.06);
+      --radius: 10px;
     }
 
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; }
+
     body {
-      margin: 0;
       color: var(--text);
-      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-      background:
-        radial-gradient(1200px 500px at 10% -15%, #dbead7 0%, transparent 60%),
-        radial-gradient(900px 360px at 95% -25%, #ece4cb 0%, transparent 60%),
-        var(--bg);
-      line-height: 1.4;
-    }
-
-    .wrap {
-      max-width: 1280px;
-      margin: 0 auto;
-      padding: 2rem 1.25rem 3rem;
-    }
-
-    .top {
-      display: grid;
-      gap: 1rem;
-      grid-template-columns: 2fr 1fr;
-      margin-bottom: 1rem;
+      font: 400 15px/1.5 "DM Sans", system-ui, sans-serif;
+      background: var(--bg);
     }
 
     .hero {
-      background: linear-gradient(115deg, #143d2f, #2b5d47);
-      color: #eef7f1;
-      border-radius: var(--radius);
-      padding: 1.35rem 1.4rem 1.45rem;
-      box-shadow: var(--shadow);
+      background: linear-gradient(135deg, var(--hero-from), var(--hero-to));
+      color: #e8efe9;
+      padding: 2.5rem 1.5rem 2rem;
+    }
+
+    .hero-inner {
+      max-width: 1120px;
+      margin: 0 auto;
     }
 
     .hero h1 {
-      margin: 0 0 .25rem;
-      font: 700 2rem/1 "Chivo", "IBM Plex Sans", sans-serif;
-      letter-spacing: -0.02em;
+      font: 400 2.4rem/1.1 "DM Serif Display", Georgia, serif;
+      color: #fff;
+      margin-bottom: .3rem;
+      letter-spacing: -.01em;
     }
 
-    .hero p {
-      margin: 0;
-      color: #d7eadc;
-      font-size: .98rem;
+    .hero h1 em {
+      font-style: italic;
+      color: #7dcea0;
     }
 
-    .meta {
-      margin-top: .9rem;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: .55rem;
-      font-size: .88rem;
-      color: #d7eadc;
+    .hero-sub {
+      font-size: .95rem;
+      color: #a3bfac;
+      margin-bottom: 1.6rem;
     }
 
-    .links {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 1rem 1.1rem;
-      box-shadow: var(--shadow);
+    .hero-stats {
+      display: flex;
+      gap: 2.5rem;
+      flex-wrap: wrap;
     }
 
-    .links h2 {
-      margin: 0 0 .55rem;
-      font: 700 1rem/1 "Chivo", sans-serif;
-      color: #2c3f30;
+    .hero-stat {
+      display: flex;
+      flex-direction: column;
     }
 
-    .links a {
+    .hero-stat .val {
+      font: 400 2rem/1 "DM Serif Display", Georgia, serif;
+      color: #fff;
+      letter-spacing: -.02em;
+    }
+
+    .hero-stat .lbl {
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #7dcea0;
+      margin-top: .2rem;
+    }
+
+    .wrap {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 1.5rem 1.5rem 3rem;
+    }
+
+    .meta-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem 1.5rem;
+      font-size: .78rem;
+      color: var(--muted);
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .meta-bar a {
       color: var(--accent);
       text-decoration: none;
       font-weight: 600;
     }
 
-    .links a:hover { text-decoration: underline; }
+    .meta-bar a:hover { text-decoration: underline; }
 
-    .kpis {
-      margin: .65rem 0 1.1rem;
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: .65rem;
+    /* --- System comparison --- */
+    .section-title {
+      font: 400 1.5rem/1.2 "DM Serif Display", Georgia, serif;
+      margin: 2rem 0 .3rem;
+      letter-spacing: -.01em;
     }
 
-    .kpi {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: .85rem .9rem;
-      box-shadow: var(--shadow);
-      min-height: 86px;
-    }
-
-    .kpi .label {
-      display: block;
-      color: var(--muted);
-      font-size: .74rem;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      margin-bottom: .35rem;
-    }
-
-    .kpi strong {
-      display: block;
-      font: 700 1.35rem/1 "Chivo", sans-serif;
-      letter-spacing: -0.02em;
-      color: #1b291f;
-    }
-
-    .section {
-      margin: 1rem 0 1.2rem;
-    }
-
-    .section-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 1rem;
-      margin-bottom: .5rem;
-    }
-
-    .section-head h2 {
-      margin: 0;
-      font: 700 1.16rem/1 "Chivo", sans-serif;
-      letter-spacing: 0.02em;
-    }
-
-    .section-head p {
-      margin: 0;
+    .section-sub {
       color: var(--muted);
       font-size: .82rem;
+      margin-bottom: .8rem;
     }
 
-    .system-grid {
+    .sys-row {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-      gap: .65rem;
-    }
-
-    .system-card {
+      grid-template-columns: 180px 1fr 1fr;
+      gap: .5rem 1.2rem;
+      align-items: center;
+      padding: .8rem 1rem;
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: .85rem;
+      border-radius: var(--radius);
+      margin-bottom: .45rem;
       box-shadow: var(--shadow);
     }
 
-    .system-card-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: .55rem;
+    .sys-row.is-atoll {
+      border-left: 3px solid var(--gold);
+      background: var(--gold-soft);
     }
 
-    .system-card h3 {
-      margin: 0;
-      font: 700 1rem/1 "Chivo", sans-serif;
+    .sys-name {
+      display: flex;
+      flex-direction: column;
+      gap: .2rem;
+    }
+
+    .sys-name strong {
+      font: 700 1rem/1 "DM Sans", sans-serif;
       text-transform: lowercase;
     }
 
-    .chip {
-      border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-size: .73rem;
-      font-weight: 700;
-      padding: .18rem .5rem;
-    }
-
-    .system-metrics {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: .5rem;
-    }
-
-    .label {
+    .ratio-badge {
+      display: inline-block;
+      font-size: .68rem;
+      font-weight: 600;
       color: var(--muted);
+      background: #eee;
+      border-radius: 999px;
+      padding: .1rem .45rem;
+      width: fit-content;
+    }
+
+    .sys-stats {
+      display: flex;
+      gap: 1.2rem;
+    }
+
+    .sys-stat span {
       display: block;
-      font-size: .72rem;
+      font-size: .65rem;
       text-transform: uppercase;
       letter-spacing: .06em;
-      margin-bottom: .2rem;
-    }
-
-    .small { font-size: .78rem; }
-    .muted { color: var(--muted); }
-
-    .scenario-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: .65rem;
-    }
-
-    .scenario-card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: .85rem;
-      box-shadow: var(--shadow);
-    }
-
-    .scenario-card.is-error {
-      border-color: #efc2af;
-      background: #fffaf8;
-    }
-
-    .scenario-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: .35rem;
-    }
-
-    .scenario-head h4 {
-      margin: 0;
-      font: 700 .95rem/1 "Chivo", sans-serif;
-      text-transform: lowercase;
-    }
-
-    .scenario-label {
-      margin: 0 0 .55rem;
-      font-size: .8rem;
       color: var(--muted);
     }
 
-    .status {
-      border-radius: 999px;
-      padding: .13rem .44rem;
-      font-size: .72rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      border: 1px solid transparent;
+    .sys-stat strong {
+      font: 700 .95rem/1.2 "DM Sans", sans-serif;
     }
 
-    .status-ok {
-      background: var(--ok-soft);
-      color: var(--ok);
-      border-color: #b9dfcb;
-    }
-
-    .status-error {
-      background: var(--warn-soft);
-      color: var(--warn);
-      border-color: #efc2af;
-    }
-
-    .metric-grid {
+    .sys-bars {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: .45rem .5rem;
-      margin-bottom: .5rem;
+      gap: .3rem;
     }
 
-    .metric-grid strong {
-      font: 700 1rem/1 "Chivo", sans-serif;
-    }
-
-    .bars { display: grid; gap: .35rem; }
-
-    .bar-row {
+    .sys-bar-row {
       display: grid;
-      grid-template-columns: 66px 1fr 64px;
+      grid-template-columns: 72px 1fr;
       align-items: center;
-      gap: .45rem;
-      font-size: .72rem;
+      gap: .4rem;
+    }
+
+    .bar-label {
+      font-size: .65rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
       color: var(--muted);
     }
 
     .bar {
-      height: 8px;
-      background: #e8eee6;
+      height: 7px;
+      background: #eae7e0;
       border-radius: 999px;
       overflow: hidden;
-      border: 1px solid #dce5d8;
     }
 
     .bar i {
       display: block;
       height: 100%;
-      background: linear-gradient(90deg, #2a6f57, #4da177);
       border-radius: inherit;
     }
 
-    .bar-row em {
-      font-style: normal;
-      text-align: right;
-      color: #4d5f4f;
-      font-weight: 600;
+    .bar-rps i { background: linear-gradient(90deg, #1a5c3a, #2d8a56); }
+    .bar-p95 i { background: linear-gradient(90deg, #c4883a, #e0a84c); }
+    .bar-p95-inv i { background: linear-gradient(90deg, #c4883a, #e0a84c); }
+
+    /* --- Page-type comparison --- */
+    .page-section {
+      margin: 2rem 0;
     }
 
-    .sparkline {
-      margin-top: .4rem;
-      display: flex;
+    .page-section h2 {
+      font: 400 1.3rem/1.2 "DM Serif Display", Georgia, serif;
+      margin-bottom: .6rem;
+      padding-bottom: .4rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .cmp-header, .cmp-row {
+      display: grid;
+      grid-template-columns: 120px 1fr 80px 1fr 80px 80px;
+      gap: .4rem;
       align-items: center;
-      justify-content: space-between;
-      gap: .5rem;
-      font-size: .72rem;
+      padding: .35rem .6rem;
+    }
+
+    .cmp-header {
+      font-size: .65rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .cmp-row {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-bottom: .3rem;
+      box-shadow: var(--shadow);
+    }
+
+    .cmp-row.is-atoll {
+      border-left: 3px solid var(--gold);
+      background: var(--gold-soft);
+    }
+
+    .cmp-system {
+      font-weight: 600;
+      font-size: .88rem;
+      text-transform: lowercase;
+    }
+
+    .cmp-val {
+      font: 700 .88rem/1 "DM Sans", sans-serif;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .cmp-val small {
+      font-weight: 400;
+      font-size: .7rem;
       color: var(--muted);
     }
 
-    .sparkline svg {
-      width: 120px;
-      height: 28px;
+    .cmp-bar-cell { min-width: 0; }
+
+    .cmp-spark {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cmp-spark svg {
+      width: 60px;
+      height: 22px;
       display: block;
     }
 
+    /* --- Raw table --- */
     details {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: var(--radius);
       box-shadow: var(--shadow);
       overflow: hidden;
+      margin-top: 2rem;
     }
 
     summary {
       cursor: pointer;
       list-style: none;
-      padding: .9rem 1rem;
-      font: 700 .9rem/1 "Chivo", sans-serif;
+      padding: .8rem 1rem;
+      font: 600 .85rem/1 "DM Sans", sans-serif;
       border-bottom: 1px solid var(--line);
     }
 
     summary::-webkit-details-marker { display: none; }
 
     .table-wrap { overflow-x: auto; }
+
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: .82rem;
+      font-size: .8rem;
     }
 
     th, td {
       border-bottom: 1px solid var(--line);
-      padding: .5rem .6rem;
+      padding: .45rem .55rem;
       text-align: left;
       vertical-align: top;
     }
 
     th {
-      background: #f0f4ee;
-      color: #324235;
+      background: #f0ede7;
+      color: #40403c;
       position: sticky;
       top: 0;
       z-index: 1;
+      font-weight: 600;
     }
 
     .num {
@@ -723,63 +669,94 @@ $html = <<<HTML
       font-variant-numeric: tabular-nums;
     }
 
-    @media (max-width: 1060px) {
-      .top { grid-template-columns: 1fr; }
-      .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .muted { color: var(--muted); }
+
+    .status {
+      border-radius: 999px;
+      padding: .12rem .4rem;
+      font-size: .7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
     }
 
-    @media (max-width: 780px) {
-      .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .meta { grid-template-columns: 1fr; }
+    .status-ok { background: var(--ok-soft); color: var(--ok); }
+    .status-error { background: var(--warn-soft); color: var(--warn); }
+
+    .footer {
+      margin-top: 2.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+      font-size: .75rem;
+      color: var(--muted);
     }
 
-    @media (max-width: 540px) {
-      .kpis { grid-template-columns: 1fr; }
-      .bar-row { grid-template-columns: 54px 1fr 56px; }
-      .section-head { flex-direction: column; align-items: flex-start; }
+    @media (max-width: 900px) {
+      .sys-row {
+        grid-template-columns: 1fr;
+      }
+      .hero-stats { gap: 1.5rem; }
+      .cmp-header, .cmp-row {
+        grid-template-columns: 90px 1fr 65px 1fr 65px 60px;
+        font-size: .78rem;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .hero h1 { font-size: 1.6rem; }
+      .hero-stat .val { font-size: 1.4rem; }
+      .sys-stats { flex-wrap: wrap; gap: .6rem; }
+      .cmp-header, .cmp-row {
+        grid-template-columns: 80px 1fr 60px;
+      }
+      .cmp-row .cmp-bar-cell:nth-child(4),
+      .cmp-row .cmp-val:nth-child(5),
+      .cmp-row .cmp-spark,
+      .cmp-header .cmp-bar-cell:nth-child(4),
+      .cmp-header .cmp-val:nth-child(5),
+      .cmp-header .cmp-spark { display: none; }
     }
   </style>
 </head>
+CSSBLOCK;
+
+$html .= <<<HTML
 <body>
-  <div class="wrap">
-    <section class="top">
-      <header class="hero">
-        <h1>Benchmark Dashboard</h1>
-        <p>Cross-CMS read-path comparison with grouped scenarios and relative performance scores.</p>
-        <div class="meta">
-          <div><strong>Run at:</strong><br>{$runAtText}</div>
-          <div><strong>Source:</strong><br>{$sourceText}</div>
-          <div><strong>Rounds:</strong><br>{$configuredRounds}</div>
-          <div><strong>Error threshold:</strong><br>{$maxErrorRate}%</div>
-        </div>
-      </header>
-      <aside class="links">
-        <h2>Artifacts</h2>
-        <p><a href="latest.json">latest.json</a> | {$latestMd}<a href="latest.raw.json">latest.raw.json</a></p>
-        <p class="small muted">Use <code>latest.raw.json</code> for auditability. <code>latest.json</code> is compact for embeds.</p>
-      </aside>
-    </section>
-
-    <section class="kpis">
-      <article class="kpi"><span class="label">Scenarios</span><strong>{$summaryCount}</strong></article>
-      <article class="kpi"><span class="label">Systems</span><strong>{$systemCount}</strong></article>
-      <article class="kpi"><span class="label">Page Types</span><strong>{$pageTypeCount}</strong></article>
-      <article class="kpi"><span class="label">Best p95</span><strong>{$bestP95Text}</strong></article>
-      <article class="kpi"><span class="label">Best RPS</span><strong>{$bestRpsText}</strong></article>
-    </section>
-
-    <section class="section">
-      <div class="section-head">
-        <h2>System Leaderboard</h2>
-        <p>{$okCount} ok | {$errorCount} error scenarios</p>
+  <header class="hero">
+    <div class="hero-inner">
+      <h1>atoll <em>Performance</em></h1>
+      <p class="hero-sub">Flat-file CMS read-path latency and throughput, measured head-to-head.</p>
+      <div class="hero-stats">
+        <div class="hero-stat"><span class="val">{$atollP95Text} ms</span><span class="lbl">atoll avg p95 latency</span></div>
+        <div class="hero-stat"><span class="val">{$atollRpsText}</span><span class="lbl">atoll avg requests / sec</span></div>
+        <div class="hero-stat"><span class="val">{$atollWinsP95}/{$pageTypeCount}</span><span class="lbl">page types won (p95)</span></div>
+        <div class="hero-stat"><span class="val">{$systemCount}</span><span class="lbl">CMS systems compared</span></div>
       </div>
-      <div class="system-grid">{$systemCardsHtml}</div>
-    </section>
+    </div>
+  </header>
 
+  <div class="wrap">
+    <div class="meta-bar">
+      <span>Run: {$runAtText}</span>
+      <span>Rounds: {$configuredRounds}</span>
+      <span>Source: {$sourceText}</span>
+      <span>{$latestMd}<a href="latest.json">JSON</a> | <a href="latest.raw.json">Raw JSON</a></span>
+    </div>
+
+    <h2 class="section-title">System Comparison</h2>
+    <p class="section-sub">Flat-file CMS systems with routing and admin capabilities. Sorted by average p95 latency.</p>
+    {$systemsHtml}
+
+HTML;
+
+$html .= <<<HTML
+
+    <h2 class="section-title">Per-Page Breakdown</h2>
+    <p class="section-sub">Performance by page type, separated by system category.</p>
     {$pageSectionsHtml}
 
-    <details class="section">
-      <summary>Raw Scenario Table</summary>
+    <details>
+      <summary>Raw Scenario Data</summary>
       <div class="table-wrap">
         <table>
           <thead>
@@ -801,6 +778,10 @@ $html = <<<HTML
         </table>
       </div>
     </details>
+
+    <div class="footer">
+      Methodology: Each scenario runs {$configuredRounds} rounds of concurrent HTTP requests. Metrics use the median across rounds. Error threshold: {$maxErrorRate}%.
+    </div>
   </div>
 </body>
 </html>
@@ -808,6 +789,10 @@ HTML;
 
 file_put_contents($outDir . '/index.html', $html);
 echo "Benchmark pages written to: {$outDir}\n";
+
+// ============================================================
+// Helper functions
+// ============================================================
 
 function detectPageType(string $scenario, string $url): string
 {
@@ -859,8 +844,8 @@ function sparkline(array $values): string
         return '<span class="muted">n/a</span>';
     }
 
-    $width = 120.0;
-    $height = 28.0;
+    $width = 60.0;
+    $height = 22.0;
     $min = min($points);
     $max = max($points);
     $range = max(0.0001, $max - $min);
@@ -873,7 +858,7 @@ function sparkline(array $values): string
     }
 
     $polyline = implode(' ', $coords);
-    return '<svg viewBox="0 0 120 28" preserveAspectRatio="none" role="img" aria-label="p95 trend">'
-        . '<polyline points="' . h($polyline) . '" fill="none" stroke="#2a6f57" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>'
+    return '<svg viewBox="0 0 60 22" preserveAspectRatio="none" role="img" aria-label="p95 trend">'
+        . '<polyline points="' . h($polyline) . '" fill="none" stroke="#1a5c3a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></polyline>'
         . '</svg>';
 }
