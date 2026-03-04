@@ -1,0 +1,28 @@
+defaults:
+  warmup_requests: 30
+  requests: 200
+  concurrency: 10
+  timeout_ms: 8000
+  headers:
+    Accept: text/html
+
+scenarios:
+  - id: atoll-home
+    label: atoll homepage
+    system: atoll
+    url: http://localhost:8080/
+
+  - id: wordpress-home
+    label: WordPress homepage
+    system: wordpress
+    url: http://localhost:8081/
+
+  - id: kirby-home
+    label: Kirby homepage
+    system: kirby
+    url: http://localhost:8082/
+
+  - id: grav-home
+    label: Grav homepage
+    system: grav
+    url: http://localhost:8083/

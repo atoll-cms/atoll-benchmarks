@@ -1,0 +1,49 @@
+services:
+  atoll:
+    build:
+      context: ..
+      dockerfile: atoll-benchmarks/docker/atoll/Dockerfile
+    ports:
+      - "8080:80"
+
+  wordpress-db:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+      MARIADB_ROOT_PASSWORD: root
+    volumes:
+      - wordpress_db_data:/var/lib/mysql
+
+  wordpress:
+    image: wordpress:6.6-php8.2-apache
+    depends_on:
+      - wordpress-db
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    ports:
+      - "8081:80"
+    volumes:
+      - wordpress_data:/var/www/html
+
+  kirby:
+    build:
+      context: .
+      dockerfile: docker/kirby/Dockerfile
+    ports:
+      - "8082:80"
+
+  grav:
+    build:
+      context: .
+      dockerfile: docker/grav/Dockerfile
+    ports:
+      - "8083:80"
+
+volumes:
+  wordpress_db_data:
+  wordpress_data:

@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+cmd="${1:-help}"
+shift || true
+
+help() {
+  cat <<'TXT'
+atoll-benchmarks
+
+Commands:
+  bench up                     Start benchmark stack via docker compose
+  bench down                   Stop benchmark stack
+  bench ps                     Show benchmark containers
+  bench check                  Check endpoint reachability (HTTP status)
+  bench run [args...]          Run benchmark and write JSON report
+  bench report [args...]       Render markdown report from JSON
+
+Examples:
+  ./bin/bench up
+  ./bin/bench check
+  ./bin/bench run --rounds=3
+  ./bin/bench report --out=benchmarks/results/latest.md
+TXT
+}
+
+case "$cmd" in
+  up)
+    docker compose -f "$ROOT/docker-compose.yml" up -d --build
+    ;;
+  down)
+    docker compose -f "$ROOT/docker-compose.yml" down
+    ;;
+  ps)
+    docker compose -f "$ROOT/docker-compose.yml" ps
+    ;;
+  check)
+    failed=0
+
+    check_url() {
+      name="$1"
+      url="$2"
+      code="$(curl -s -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
+      if [[ ! "$code" =~ ^[0-9]{3}$ ]]; then
+        code="000"
+      fi
+      echo "$name $code"
+      if [ "$code" != "200" ]; then
+        failed=1
+      fi
+    }
+
+    check_url atoll http://localhost:8080/
+    check_url wordpress http://localhost:8081/
+    check_url kirby http://localhost:8082/
+    check_url grav http://localhost:8083/
+
+    if [ "$failed" -ne 0 ]; then
+      echo "One or more endpoints are not healthy (expected 200)." >&2
+      exit 1
+    fi
+    ;;
+  run)
+    php "$ROOT/tools/benchmark-run.php" --root="$ROOT" "$@"
+    ;;
+  report)
+    php "$ROOT/tools/benchmark-report.php" --root="$ROOT" "$@"
+    ;;
+  help|--help|-h)
+    help
+    ;;
+  *)
+    echo "Unknown command: $cmd" >&2
+    help
+    exit 1
+    ;;
+esac

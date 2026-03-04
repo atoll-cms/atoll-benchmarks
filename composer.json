@@ -1,0 +1,10 @@
+{
+  "name": "atoll/benchmarks",
+  "description": "Cross-CMS benchmark harness for atoll, WordPress, Kirby and Grav",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": "^8.2",
+    "symfony/yaml": "^7.2"
+  }
+}
