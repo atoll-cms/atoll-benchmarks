@@ -57,6 +57,14 @@ Report erzeugen:
 ./bin/bench report --out=benchmarks/results/latest.md
 ```
 
+Dashboard erzeugen (GitHub Pages Layout lokal):
+
+```bash
+php tools/benchmark-pages.php --input=benchmarks/results/<run>.json --out=public
+```
+
+Das Dashboard gruppiert Ergebnisse nach Seitentyp (z. B. `home/about/contact`), zeigt pro System eine Leaderboard-Karte und visualisiert pro Szenario relative p95/RPS-Scores inkl. Rundentrend.
+
 ## Targets
 
 Standard-Targets: `benchmarks/targets.yaml`
