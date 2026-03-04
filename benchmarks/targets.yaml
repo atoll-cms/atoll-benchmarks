@@ -36,3 +36,63 @@ scenarios:
     label: Grav homepage
     system: grav
     url: http://127.0.0.1:8083/
+
+  - id: atoll-about
+    label: atoll about page
+    system: atoll
+    url: http://127.0.0.1:8080/about
+
+  - id: atoll-static-about
+    label: atoll static profile about page
+    system: atoll-static
+    url: http://127.0.0.1:8084/about
+
+  - id: atoll-minimal-about
+    label: atoll minimal core-only about page
+    system: atoll-minimal
+    url: http://127.0.0.1:8085/about
+
+  - id: wordpress-about
+    label: WordPress about page
+    system: wordpress
+    url: http://127.0.0.1:8081/about/
+
+  - id: kirby-about
+    label: Kirby about page
+    system: kirby
+    url: http://127.0.0.1:8082/about
+
+  - id: grav-about
+    label: Grav about page
+    system: grav
+    url: http://127.0.0.1:8083/about
+
+  - id: atoll-contact
+    label: atoll contact page
+    system: atoll
+    url: http://127.0.0.1:8080/contact
+
+  - id: atoll-static-contact
+    label: atoll static profile contact page
+    system: atoll-static
+    url: http://127.0.0.1:8084/contact
+
+  - id: atoll-minimal-contact
+    label: atoll minimal core-only contact page
+    system: atoll-minimal
+    url: http://127.0.0.1:8085/contact
+
+  - id: wordpress-contact
+    label: WordPress contact page
+    system: wordpress
+    url: http://127.0.0.1:8081/contact/
+
+  - id: kirby-contact
+    label: Kirby contact page
+    system: kirby
+    url: http://127.0.0.1:8082/contact
+
+  - id: grav-contact
+    label: Grav contact page
+    system: grav
+    url: http://127.0.0.1:8083/contact

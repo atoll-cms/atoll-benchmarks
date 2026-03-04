@@ -80,6 +80,12 @@ services:
         done
         wp option update blog_public 1 --path=/var/www/html --allow-root >/dev/null 2>&1 || true
         wp option update permalink_structure '/%postname%/' --path=/var/www/html --allow-root >/dev/null 2>&1 || true
+        if ! wp post list --path=/var/www/html --post_type=page --name=about --field=ID --allow-root | grep -Eq '^[0-9]+$'; then
+          wp post create --path=/var/www/html --post_type=page --post_status=publish --post_title="About" --post_name=about --post_content="Benchmark about page." --allow-root >/dev/null 2>&1 || true
+        fi
+        if ! wp post list --path=/var/www/html --post_type=page --name=contact --field=ID --allow-root | grep -Eq '^[0-9]+$'; then
+          wp post create --path=/var/www/html --post_type=page --post_status=publish --post_title="Contact" --post_name=contact --post_content="Benchmark contact page." --allow-root >/dev/null 2>&1 || true
+        fi
         echo "WordPress initialized."
     volumes:
       - wordpress_data:/var/www/html
