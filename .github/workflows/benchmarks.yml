@@ -1,0 +1,89 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/benchmarks.yml'
+      - 'bin/**'
+      - 'benchmarks/targets.yaml'
+      - 'docker-compose.yml'
+      - 'docker/**'
+      - 'tools/**'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'README.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/benchmarks.yml'
+      - 'bin/**'
+      - 'benchmarks/targets.yaml'
+      - 'docker-compose.yml'
+      - 'docker/**'
+      - 'tools/**'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'README.md'
+  workflow_dispatch:
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    name: Cross-CMS Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: curl, mbstring, json
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Build and start benchmark stack
+        run: ./bin/bench up
+
+      - name: Health check
+        run: ./bin/bench check
+
+      - name: Run benchmark
+        shell: bash
+        run: |
+          rounds=3
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            rounds=1
+          fi
+          ./bin/bench run --rounds="$rounds" --max-error-rate=0.5
+
+      - name: Build markdown report
+        shell: bash
+        run: |
+          latest_json="$(ls -1 benchmarks/results/*.json | sort | tail -n1)"
+          latest_md="${latest_json%.json}.md"
+          ./bin/bench report --input="$latest_json" --out="$latest_md"
+          echo "LATEST_JSON=$latest_json" >> "$GITHUB_ENV"
+          echo "LATEST_MD=$latest_md" >> "$GITHUB_ENV"
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.run_id }}
+          path: |
+            ${{ env.LATEST_JSON }}
+            ${{ env.LATEST_MD }}
+
+      - name: Stop benchmark stack
+        if: always()
+        run: ./bin/bench down

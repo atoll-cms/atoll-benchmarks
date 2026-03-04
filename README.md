@@ -72,5 +72,14 @@ Standard-Targets: `benchmarks/targets.yaml`
 - Alle Systeme vorab aufwaermen.
 - Gleiche Lastparameter (`requests`, `concurrency`, `rounds`) verwenden.
 - Der atoll-Docker-Service setzt im Benchmark-Stack ein hohes Rate-Limit, um versehentliche Drosselung zu vermeiden.
+- Der atoll-Docker-Service deaktiviert zusaetzlich `security.rate_limit.enabled` fuer den Benchmark-Container, um I/O-Overhead der Drosselung im Public-Read-Test auszuschliessen.
 - Wenn dennoch `429` auftritt, gilt der Lauf als ungueltig und muss wiederholt werden.
 - WordPress wird im Stack automatisch per `wp-cli` initialisiert, damit die Homepage nicht auf Setup/Redirect landet.
+
+## CI
+
+Das Repo enthaelt einen GitHub-Workflow `.github/workflows/benchmarks.yml`:
+
+- PRs: 1 Runde (schneller Smoke-Benchmark)
+- `main`: 3 Runden
+- Trigger nur bei benchmark-relevanten Dateiaenderungen (`docker/**`, `tools/**`, `bin/**`, `benchmarks/targets.yaml`, Workflow/Composer-Dateien)
