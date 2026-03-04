@@ -13,13 +13,19 @@ services:
       MARIADB_USER: wordpress
       MARIADB_PASSWORD: wordpress
       MARIADB_ROOT_PASSWORD: root
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
     volumes:
       - wordpress_db_data:/var/lib/mysql
 
   wordpress:
     image: wordpress:6.6-php8.2-apache
     depends_on:
-      - wordpress-db
+      wordpress-db:
+        condition: service_healthy
     environment:
       WORDPRESS_DB_HOST: wordpress-db:3306
       WORDPRESS_DB_USER: wordpress
@@ -27,6 +33,34 @@ services:
       WORDPRESS_DB_NAME: wordpress
     ports:
       - "8081:80"
+    volumes:
+      - wordpress_data:/var/www/html
+
+  wordpress-init:
+    image: wordpress:cli
+    depends_on:
+      wordpress-db:
+        condition: service_healthy
+      wordpress:
+        condition: service_started
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    entrypoint:
+      - /bin/sh
+      - -ec
+    command:
+      - |
+        until [ -f /var/www/html/wp-config.php ]; do sleep 1; done
+        until wp core is-installed --path=/var/www/html --allow-root >/dev/null 2>&1; do
+          wp core install --path=/var/www/html --url=http://localhost:8081 --title="Benchmark Site" --admin_user=admin --admin_password=admin --admin_email=admin@example.com --skip-email --allow-root >/dev/null 2>&1 || true
+          sleep 2
+        done
+        wp option update blog_public 1 --path=/var/www/html --allow-root >/dev/null 2>&1 || true
+        wp option update permalink_structure '/%postname%/' --path=/var/www/html --allow-root >/dev/null 2>&1 || true
+        echo "WordPress initialized."
     volumes:
       - wordpress_data:/var/www/html
 

@@ -413,7 +413,7 @@ function preflightRequest(string $url, int $timeoutMs, array $headers): array
     $ch = null;
 
     return [
-        'ok' => $errno === 0 && $status > 0 && $status < 400,
+        'ok' => $errno === 0 && $status >= 200 && $status < 300,
         'status' => $status,
         'errno' => $errno,
         'error' => $error,
@@ -495,7 +495,7 @@ function runRound(string $url, int $requests, int $concurrency, int $timeoutMs, 
             $statusKey = 'status_' . ($status > 0 ? (string) $status : '0');
             $httpStatus[$statusKey] = ($httpStatus[$statusKey] ?? 0) + 1;
 
-            if ($errno !== 0 || $status <= 0 || $status >= 400) {
+            if ($errno !== 0 || $status < 200 || $status >= 300) {
                 $errors++;
                 $label = $errno !== 0 ? "curl:{$errno}" : "http:{$status}";
                 if ($error !== '' && $errno !== 0) {

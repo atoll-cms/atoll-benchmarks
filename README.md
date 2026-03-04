@@ -27,6 +27,7 @@ composer install
 ```
 
 `bench check` sollte fuer alle vier Ziele `200` liefern.
+Der Check wartet automatisch mit Retries (Default: 45 Versuche alle 2s), bis alle Targets stabil sind.
 
 ## Benchmark laufen lassen
 
@@ -43,9 +44,10 @@ Optional:
 
 Sicherheitslogik im Runner:
 
-- Lauf wird als `error` markiert, wenn kein Erfolgscode gemessen wurde.
+- Lauf wird als `error` markiert, wenn kein `2xx`-Erfolgscode gemessen wurde.
 - Lauf wird als `error` markiert, wenn die Fehlerrate ueber `--max-error-rate` liegt.
 - Lauf wird als `error` markiert, sobald HTTP `429` erkannt wird (Rate-Limit verfälscht Messung).
+- `bench run` fuehrt vor dem Lauf automatisch den Health-Check aus und bricht bei instabilem Stack ab.
 
 Report erzeugen:
 
@@ -57,10 +59,12 @@ Report erzeugen:
 
 Standard-Targets: `benchmarks/targets.yaml`
 
-- atoll: `http://localhost:8080/`
-- WordPress: `http://localhost:8081/`
-- Kirby: `http://localhost:8082/`
-- Grav: `http://localhost:8083/`
+- atoll: `http://127.0.0.1:8080/`
+- WordPress: `http://127.0.0.1:8081/`
+- Kirby: `http://127.0.0.1:8082/`
+- Grav: `http://127.0.0.1:8083/`
+
+`127.0.0.1` ist absichtlich fix gesetzt, um lokale IPv6-Dev-Server auf `localhost` (z. B. `::1`) nicht versehentlich zu benchmarken.
 
 ## Fairness-Hinweise
 
@@ -69,3 +73,4 @@ Standard-Targets: `benchmarks/targets.yaml`
 - Gleiche Lastparameter (`requests`, `concurrency`, `rounds`) verwenden.
 - Der atoll-Docker-Service setzt im Benchmark-Stack ein hohes Rate-Limit, um versehentliche Drosselung zu vermeiden.
 - Wenn dennoch `429` auftritt, gilt der Lauf als ungueltig und muss wiederholt werden.
+- WordPress wird im Stack automatisch per `wp-cli` initialisiert, damit die Homepage nicht auf Setup/Redirect landet.
