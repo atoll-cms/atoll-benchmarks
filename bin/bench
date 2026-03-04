@@ -48,6 +48,7 @@ check_once() {
 
   check_url atoll http://127.0.0.1:8080/
   check_url atoll-static http://127.0.0.1:8084/
+  check_url atoll-minimal http://127.0.0.1:8085/
   check_url wordpress http://127.0.0.1:8081/
   check_url kirby http://127.0.0.1:8082/
   check_url grav http://127.0.0.1:8083/
