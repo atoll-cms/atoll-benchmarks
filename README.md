@@ -27,7 +27,7 @@ composer install
 ./bin/bench check
 ```
 
-`bench check` sollte fuer alle vier Ziele `200` liefern.
+`bench check` sollte fuer alle fuenf Ziele `200` liefern.
 Der Check wartet automatisch mit Retries (Default: 45 Versuche alle 2s), bis alle Targets stabil sind.
 
 ## Benchmark laufen lassen
@@ -86,3 +86,5 @@ Das Repo enthaelt einen GitHub-Workflow `.github/workflows/benchmarks.yml`:
 - PRs: 1 Runde (schneller Smoke-Benchmark)
 - `main`: 3 Runden
 - Trigger nur bei benchmark-relevanten Dateiaenderungen (`docker/**`, `tools/**`, `bin/**`, `benchmarks/targets.yaml`, Workflow/Composer-Dateien)
+- Auf `main` wird zusaetzlich ein oeffentliches Dashboard nach GitHub Pages deployed: `https://atoll-cms.github.io/atoll-benchmarks/`
+  - JSON Snapshot: `https://atoll-cms.github.io/atoll-benchmarks/latest.json`

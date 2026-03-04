@@ -38,6 +38,8 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      pages: write
+      id-token: write
 
     steps:
       - name: Checkout
@@ -83,6 +85,25 @@ jobs:
           path: |
             ${{ env.LATEST_JSON }}
             ${{ env.LATEST_MD }}
+
+      - name: Build Pages dashboard
+        if: github.event_name != 'pull_request'
+        run: |
+          php tools/benchmark-pages.php --input="${LATEST_JSON}" --markdown="${LATEST_MD}" --out=public
+
+      - name: Setup Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/deploy-pages@v4
 
       - name: Stop benchmark stack
         if: always()

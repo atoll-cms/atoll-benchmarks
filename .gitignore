@@ -1,4 +1,5 @@
 /vendor/
 /.DS_Store
+/public/
 /benchmarks/results/*.json
 /benchmarks/results/*.md
