@@ -68,7 +68,7 @@ jobs:
       - name: Run benchmark
         shell: bash
         run: |
-          rounds=3
+          rounds=5
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             rounds=1
           fi

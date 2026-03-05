@@ -12,16 +12,6 @@ scenarios:
     system: atoll
     url: http://127.0.0.1:8080/
 
-  - id: atoll-static-home
-    label: atoll static profile homepage
-    system: atoll-static
-    url: http://127.0.0.1:8084/
-
-  - id: atoll-minimal-home
-    label: atoll minimal core-only homepage
-    system: atoll-minimal
-    url: http://127.0.0.1:8085/
-
   - id: wordpress-home
     label: WordPress homepage
     system: wordpress
@@ -42,16 +32,6 @@ scenarios:
     system: atoll
     url: http://127.0.0.1:8080/about
 
-  - id: atoll-static-about
-    label: atoll static profile about page
-    system: atoll-static
-    url: http://127.0.0.1:8084/about
-
-  - id: atoll-minimal-about
-    label: atoll minimal core-only about page
-    system: atoll-minimal
-    url: http://127.0.0.1:8085/about
-
   - id: wordpress-about
     label: WordPress about page
     system: wordpress
@@ -71,16 +51,6 @@ scenarios:
     label: atoll contact page
     system: atoll
     url: http://127.0.0.1:8080/contact
-
-  - id: atoll-static-contact
-    label: atoll static profile contact page
-    system: atoll-static
-    url: http://127.0.0.1:8084/contact
-
-  - id: atoll-minimal-contact
-    label: atoll minimal core-only contact page
-    system: atoll-minimal
-    url: http://127.0.0.1:8085/contact
 
   - id: wordpress-contact
     label: WordPress contact page
